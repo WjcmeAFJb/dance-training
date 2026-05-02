@@ -26,8 +26,6 @@
   --color-input: hsl(220 16% 18%);
   --color-ring: hsl(199 89% 60%);
 
-  --color-clippy: hsl(48 95% 65%);
-  --color-clippy-eye: hsl(220 26% 7%);
   --color-key-canonical: hsl(199 89% 60%);
   --color-key-printed: hsl(258 80% 75%);
   --color-key-os: hsl(160 70% 60%);
@@ -115,32 +113,4 @@ body,
   font-weight: 600;
   margin-top: 1em;
   margin-bottom: 0.4em;
-}
-
-@keyframes clippyBlink {
-  0%,
-  92%,
-  100% {
-    transform: scaleY(1);
-  }
-  95% {
-    transform: scaleY(0.1);
-  }
-}
-.clippy-eye {
-  animation: clippyBlink 4s infinite;
-  transform-origin: center;
-}
-
-@keyframes clippyBob {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-4px);
-  }
-}
-.clippy-bob {
-  animation: clippyBob 3s ease-in-out infinite;
 }

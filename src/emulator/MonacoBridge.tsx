@@ -1,15 +1,15 @@
-// Monaco wrapper that:
-//   1. Renders Monaco as a controlled component over `EditorState`
-//   2. Captures keypresses, converts them to KeyChord, matches against the
-//      user's bindings, and dispatches to our Dance emulator
-//   3. Renders a prominent mode bar above the editor so the user always
-//      knows whether keys go to commands or to text
+// Monaco wrapper.
 //
-// Important: we do NOT use Monaco's `readOnly` flag. In normal mode we
-// instead intercept every key in our own keydown handler (preventing
-// Monaco from acting on it). This keeps the cursor visible/blinking and
-// lets the user click around — which feels much less broken than a
-// read-only editor.
+// Key interception is wired via Monaco's own `editor.onKeyDown` API, INSIDE
+// the `OnMount` callback. The earlier version attached a DOM listener from a
+// `useEffect([])` — but Monaco loads asynchronously, so when the effect ran
+// `editorRef.current` was still null and the listener was never attached.
+// Result: the editor felt fully "live" and just inserted characters even
+// though the mode bar said NORMAL.
+//
+// Monaco's `onKeyDown` fires before the textarea's input event. Calling
+// `e.preventDefault()` + `e.stopPropagation()` on it prevents both the
+// browser-default character insertion and Monaco's command dispatch.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
@@ -41,44 +41,34 @@ export function MonacoBridge({
 }: MonacoBridgeProps) {
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const chordHistoryRef = useRef<KeyChord[]>([]);
+  const disposablesRef = useRef<IDisposable[]>([]);
   const [partialChord, setPartialChord] = useState<string>("");
+
+  // Keep refs to the latest props so handlers attached during onMount always
+  // see fresh values without re-subscription.
   const stateRef = useRef(state);
   stateRef.current = state;
   const bindingsRef = useRef(bindings);
   bindingsRef.current = bindings;
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const onInsertTextRef = useRef(onInsertText);
+  onInsertTextRef.current = onInsertText;
 
   const handleMount: OnMount = (ed) => {
     editorRef.current = ed;
-    syncSelectionsToMonaco(ed, state);
-  };
+    syncSelectionsToMonaco(ed, stateRef.current);
+    ed.focus();
 
-  // Keep Monaco's text in sync when EditorState.text changes externally.
-  useEffect(() => {
-    const ed = editorRef.current;
-    if (!ed) return;
-    if (ed.getValue() !== state.text) {
-      ed.setValue(state.text);
-    }
-    syncSelectionsToMonaco(ed, state);
-  }, [state]);
-
-  // Wire keydown.
-  useEffect(() => {
-    const ed = editorRef.current;
-    if (!ed) return;
-    const disposers: IDisposable[] = [];
-    const node = ed.getDomNode();
-    if (!node) return;
-
-    const onKeyDown = (ev: KeyboardEvent) => {
+    // 1. Key handler — Monaco's own API; fires before textarea input.
+    const keyDownDispose = ed.onKeyDown((e) => {
       const cur = stateRef.current;
 
+      // Insert mode: let Monaco handle text input. Only intercept Escape.
       if (cur.mode === "insert") {
-        // In insert mode, let Monaco handle text input. Only intercept Escape.
-        if (ev.key === "Escape" || ev.code === "Escape") {
-          ev.preventDefault();
+        if (e.code === "Escape") {
+          e.preventDefault();
+          e.stopPropagation();
           chordHistoryRef.current = [];
           setPartialChord("");
           onChangeRef.current(dispatch(cur, "dance.modes.set.normal"));
@@ -86,14 +76,22 @@ export function MonacoBridge({
         return;
       }
 
-      // Normal/select/etc: intercept everything except real browser shortcuts
-      // (cmd/ctrl-only navigation we don't own).
-      if (isBrowserShortcut(ev)) return;
+      // Normal / select / object / etc.: we own every key, except a small set
+      // of true browser shortcuts.
+      if (isBrowserShortcut(e)) return;
 
-      const chord = eventToChord(ev);
-      // Always block the default — in normal mode no key should reach Monaco.
-      ev.preventDefault();
-      ev.stopPropagation();
+      // Block Monaco from doing anything with this key.
+      e.preventDefault();
+      e.stopPropagation();
+
+      const chord = eventToChord({
+        code: e.code,
+        key: e.browserEvent.key,
+        ctrlKey: e.ctrlKey,
+        shiftKey: e.shiftKey,
+        altKey: e.altKey,
+        metaKey: e.metaKey,
+      });
 
       const next = [...chordHistoryRef.current, chord];
       const result = findMatchingBinding(next, bindingsRef.current);
@@ -108,8 +106,30 @@ export function MonacoBridge({
         setPartialChord(stringifySequence(next));
         return;
       }
-      // Single-chord fallback: try common Kak defaults so users can still drive
-      // the editor before they upload bindings.
+      // No exact / partial match: try the bare-char chord built from the OS
+      // layout's translation of the physical key (so a `t` binding fires when
+      // the user's Colemak OS produces a `t`).
+      if (chord.key.kind === "code") {
+        const charChord: KeyChord = {
+          modifiers: chord.modifiers,
+          key: { kind: "char", char: e.browserEvent.key.toLowerCase() },
+        };
+        const charNext = [...chordHistoryRef.current, charChord];
+        const charResult = findMatchingBinding(charNext, bindingsRef.current);
+        if (charResult.match) {
+          chordHistoryRef.current = [];
+          setPartialChord("");
+          onChangeRef.current(applyBinding(cur, charResult.match));
+          return;
+        }
+        if (charResult.partial) {
+          chordHistoryRef.current = charNext;
+          setPartialChord(stringifySequence(charNext));
+          return;
+        }
+      }
+      // Final fallback: built-in Kak defaults so users without uploaded
+      // bindings can still drive the editor.
       const fallback = matchKakDefault(chord);
       if (fallback) {
         chordHistoryRef.current = [];
@@ -119,21 +139,10 @@ export function MonacoBridge({
       }
       chordHistoryRef.current = [];
       setPartialChord("");
-    };
-
-    node.addEventListener("keydown", onKeyDown, true);
-    disposers.push({
-      dispose: () => node.removeEventListener("keydown", onKeyDown, true),
     });
 
-    return () => disposers.forEach((d) => d.dispose());
-  }, []);
-
-  // Sync user mouse-clicks back into our selection model in normal mode.
-  useEffect(() => {
-    const ed = editorRef.current;
-    if (!ed) return;
-    const sub = ed.onMouseUp(() => {
+    // 2. Mouse-up sync — keep our selection model in sync with click drags.
+    const mouseUpDispose = ed.onMouseUp(() => {
       const cur = stateRef.current;
       if (cur.mode === "insert") return;
       const sels = ed.getSelections() ?? [];
@@ -142,7 +151,6 @@ export function MonacoBridge({
         anchor: { line: s.selectionStartLineNumber - 1, col: s.selectionStartColumn - 1 },
         active: { line: s.positionLineNumber - 1, col: s.positionColumn - 1 },
       }));
-      // Inflate empty selections to one-cell-wide so the Kak invariant holds.
       const inflated = next.map((r) => {
         if (r.anchor.line === r.active.line && r.anchor.col === r.active.col) {
           const lines = cur.text.split("\n");
@@ -158,8 +166,27 @@ export function MonacoBridge({
       });
       onChangeRef.current({ ...cur, selections: inflated });
     });
-    return () => sub.dispose();
+
+    disposablesRef.current.push(keyDownDispose, mouseUpDispose);
+  };
+
+  // Cleanup on unmount.
+  useEffect(() => {
+    return () => {
+      for (const d of disposablesRef.current) d.dispose();
+      disposablesRef.current = [];
+    };
   }, []);
+
+  // Keep Monaco's text in sync when EditorState.text changes externally.
+  useEffect(() => {
+    const ed = editorRef.current;
+    if (!ed) return;
+    if (ed.getValue() !== state.text) {
+      ed.setValue(state.text);
+    }
+    syncSelectionsToMonaco(ed, state);
+  }, [state]);
 
   const monacoOptions = useMemo<MonacoEditor.IStandaloneEditorConstructionOptions>(
     () => ({
@@ -174,14 +201,12 @@ export function MonacoBridge({
       renderLineHighlight: "all",
       cursorStyle: state.mode === "insert" ? "line" : "block",
       cursorBlinking: state.mode === "insert" ? "blink" : "smooth",
-      cursorWidth: state.mode === "insert" ? 2 : 0,
       readOnly: false,
       tabSize: 2,
       smoothScrolling: true,
       contextmenu: false,
       occurrencesHighlight: "off",
       selectionHighlight: false,
-      // Don't show Monaco's command palette / quick-suggestions; we own the keys.
       quickSuggestions: false,
       acceptSuggestionOnEnter: "off",
       theme: "vs-dark",
@@ -204,10 +229,10 @@ export function MonacoBridge({
         options={monacoOptions}
         onMount={handleMount}
         onChange={(value) => {
-          if (state.mode !== "insert" || value === undefined) return;
-          const inserted = diffInserted(state.text, value);
-          if (inserted) onInsertText?.(inserted);
-          onChangeRef.current({ ...state, text: value });
+          if (stateRef.current.mode !== "insert" || value === undefined) return;
+          const inserted = diffInserted(stateRef.current.text, value);
+          if (inserted) onInsertTextRef.current?.(inserted);
+          onChangeRef.current({ ...stateRef.current, text: value });
         }}
         theme="vs-dark"
       />
@@ -227,13 +252,20 @@ function syncSelectionsToMonaco(ed: MonacoEditor.IStandaloneCodeEditor, state: E
   );
 }
 
-function isBrowserShortcut(ev: KeyboardEvent): boolean {
-  // Let the browser keep its own shortcuts (refresh, dev tools, copy-from-DOM,
-  // tab/window cycling, find).
-  const k = ev.key.toLowerCase();
-  if ((ev.ctrlKey || ev.metaKey) && !ev.altKey) {
-    if (["r", "t", "w", "n", "tab", "shift", "f5"].includes(k)) return true;
-    if (k === "f" && ev.shiftKey) return true; // Cmd+Shift+F (browser find-in-tabs)
+interface MonacoKbEventLike {
+  code: string;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  altKey: boolean;
+  shiftKey: boolean;
+  browserEvent: { key: string };
+}
+
+function isBrowserShortcut(e: MonacoKbEventLike): boolean {
+  const k = e.browserEvent.key.toLowerCase();
+  if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+    if (["r", "t", "w", "n", "tab", "f5"].includes(k)) return true;
+    if (k === "f" && e.shiftKey) return true;
   }
   if (k === "f5" || k === "f11" || k === "f12") return true;
   return false;

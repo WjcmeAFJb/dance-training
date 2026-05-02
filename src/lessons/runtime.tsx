@@ -1,14 +1,13 @@
 // LessonRunner — owns the per-lesson editor state, dispatches commands,
-// runs the verifier, and drives Clippy reactions.
+// runs the verifier, and drives narration reactions.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EditorState } from "../emulator/types.ts";
 import { initialEditorState } from "../emulator/types.ts";
 import { MonacoBridge } from "../emulator/MonacoBridge.tsx";
 import { useStore } from "../app/store.ts";
-import { ClippyPanel } from "../ui/components/ClippyPanel.tsx";
-import type { ClippyState } from "../ui/components/Clippy.tsx";
-import { CLIPPY_LINES, pickLine } from "../ui/clippy/lines.ts";
+import { NarrationPanel, type NarrationTone } from "../ui/components/NarrationPanel.tsx";
+import { pickLine } from "../ui/narration/lines.ts";
 import { LessonMarkdown } from "../ui/components/LessonMarkdown.tsx";
 import type { Lesson, Step } from "./types.ts";
 import { verify } from "./verifier.ts";
@@ -28,11 +27,10 @@ export function LessonRunner({ lesson }: { lesson: Lesson }) {
 
   const [state, setState] = useState<EditorState>(initialState);
   const [stepIndex, setStepIndex] = useState(0);
-  const [clippyState, setClippyState] = useState<ClippyState>("talking");
-  const [clippyMsg, setClippyMsg] = useState<string>(() => {
-    const first = lesson.steps[0];
-    return first ? `${pickLine("intro")}\n\n${first.narrate}` : pickLine("intro");
-  });
+  const [tone, setTone] = useState<NarrationTone>("info");
+  const [message, setMessage] = useState<string>(
+    () => lesson.steps[0]?.narrate ?? "All steps complete.",
+  );
   const [showHint, setShowHint] = useState(false);
   const hintTimer = useRef<number | null>(null);
 
@@ -41,16 +39,16 @@ export function LessonRunner({ lesson }: { lesson: Lesson }) {
   const advance = useCallback(() => {
     const next = stepIndex + 1;
     if (next >= lesson.steps.length) {
-      setClippyState("cheering");
-      setClippyMsg(pickLine("cheer"));
+      setTone("success");
+      setMessage(pickLine("cheer"));
       markComplete(`${lesson.folder}/${lesson.id}`);
       return;
     }
     const nextStep = lesson.steps[next]!;
     setStepIndex(next);
     setShowHint(false);
-    setClippyState("talking");
-    setClippyMsg(`${pickLine("success")}\n\n${nextStep.narrate}`);
+    setTone("success");
+    setMessage(`${pickLine("success")}\n\n${nextStep.narrate}`);
     if (nextStep.reset === "initial") setState(initialState);
     else if (typeof nextStep.reset === "object") {
       setState(initialEditorState(nextStep.reset.text));
@@ -60,9 +58,7 @@ export function LessonRunner({ lesson }: { lesson: Lesson }) {
   // Run verifier on every state change.
   useEffect(() => {
     if (!step) return;
-    if (verify(state, step.goal)) {
-      advance();
-    }
+    if (verify(state, step.goal)) advance();
   }, [state, step, advance]);
 
   // Hint timer.
@@ -78,20 +74,13 @@ export function LessonRunner({ lesson }: { lesson: Lesson }) {
     };
   }, [stepIndex, step]);
 
-  const handleStateChange = useCallback((s: EditorState) => {
-    setState(s);
-  }, []);
-
-  const handleInsertText = useCallback((insertedText: string) => {
-    // Insert mode text edits flow through Monaco's onChange already.
-    void insertedText;
-  }, []);
+  const handleStateChange = useCallback((s: EditorState) => setState(s), []);
 
   const handleReset = () => {
     setState(initialState);
     setStepIndex(0);
-    setClippyMsg(`${pickLine("intro")}\n\n${lesson.steps[0]?.narrate ?? ""}`);
-    setClippyState("talking");
+    setMessage(lesson.steps[0]?.narrate ?? "");
+    setTone("info");
   };
 
   return (
@@ -114,12 +103,7 @@ export function LessonRunner({ lesson }: { lesson: Lesson }) {
           )}
         </div>
         <div className="border rounded-lg overflow-hidden">
-          <MonacoBridge
-            state={state}
-            bindings={bindings}
-            onChange={handleStateChange}
-            onInsertText={handleInsertText}
-          />
+          <MonacoBridge state={state} bindings={bindings} onChange={handleStateChange} />
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={handleReset}>
@@ -139,8 +123,8 @@ export function LessonRunner({ lesson }: { lesson: Lesson }) {
         {lesson.discrepancies?.length && <DiscrepancyCallouts ids={lesson.discrepancies} />}
       </div>
       <div className="flex flex-col gap-3">
-        <ClippyPanel state={clippyState} message={clippyMsg} />
-        <NextHint stepCount={lesson.steps.length} index={stepIndex} />
+        <NarrationPanel tone={tone} message={message} />
+        <ProgressFooter stepCount={lesson.steps.length} index={stepIndex} />
       </div>
     </div>
   );
@@ -157,7 +141,7 @@ function DiscrepancyCallouts({ ids }: { ids: readonly string[] }) {
             key={id}
             className="text-xs p-2.5 rounded-md border border-amber-700/50 bg-amber-700/10 lesson-prose"
           >
-            <strong className="text-amber-400">{CLIPPY_LINES.discrepancy[0]} </strong>
+            <strong className="text-amber-400">Heads up — </strong>
             <span className="font-medium">{d.title}.</span> <LessonMarkdown source={d.body} />
           </div>
         );
@@ -166,7 +150,7 @@ function DiscrepancyCallouts({ ids }: { ids: readonly string[] }) {
   );
 }
 
-function NextHint({ stepCount, index }: { stepCount: number; index: number }) {
+function ProgressFooter({ stepCount, index }: { stepCount: number; index: number }) {
   const left = stepCount - index - 1;
   return (
     <div className="text-xs text-muted-foreground p-3 border rounded-lg bg-secondary/40">

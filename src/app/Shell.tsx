@@ -4,7 +4,6 @@ import { useStore } from "./store.ts";
 import { BookOpenText, Flag, KeyRound, Settings, Upload, Map as MapIcon } from "lucide-react";
 import { cn } from "../ui/lib/utils.ts";
 import { Badge } from "../ui/components/ui/badge.tsx";
-import { Clippy } from "../ui/components/Clippy.tsx";
 
 export function Shell({ children }: { children: ReactNode }) {
   return (
@@ -21,12 +20,12 @@ function Sidebar() {
   const coverage = useStore((s) => s.coverage);
   return (
     <aside className="border-r bg-card/30 flex flex-col">
-      <div className="p-4 flex items-center gap-2">
-        <Clippy size={36} state="idle" />
-        <div className="leading-tight">
-          <div className="font-semibold">Dance Training</div>
-          <div className="text-xs text-muted-foreground">Kakoune, your way.</div>
+      <div className="p-4">
+        <div className="font-semibold tracking-tight text-lg">
+          <span className="text-primary">dance</span>
+          <span className="text-muted-foreground">.training</span>
         </div>
+        <div className="text-xs text-muted-foreground mt-0.5">Kakoune, your way.</div>
       </div>
       <nav className="px-2 flex flex-col gap-0.5 text-sm">
         <NavItem href="/" current={loc} icon={<BookOpenText className="h-4 w-4" />} label="Home" />

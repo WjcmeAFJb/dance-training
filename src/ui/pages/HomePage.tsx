@@ -1,23 +1,19 @@
 import { Link } from "wouter";
 import { useStore } from "../../app/store.ts";
-import { Clippy } from "../components/Clippy.tsx";
 import { Button } from "../components/ui/button.tsx";
 
 export function HomePage() {
   const bindings = useStore((s) => s.bindings);
   return (
     <div className="max-w-3xl mx-auto py-10 space-y-8">
-      <header className="flex items-start gap-6">
-        <Clippy size={140} state="cheering" />
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Dance Training</h1>
-          <p className="text-muted-foreground mt-2 max-w-2xl">
-            An interactive Kakoune tutor that adapts to your VS Code Dance keybindings. Upload your{" "}
-            <code>keybindings.json</code> and every lesson, hint, and key chip is rendered for the
-            keys <em>you</em> use — accounting for your OS layout and what's printed on your
-            physical keyboard.
-          </p>
-        </div>
+      <header>
+        <h1 className="text-3xl font-bold tracking-tight">Dance Training</h1>
+        <p className="text-muted-foreground mt-2 max-w-2xl">
+          An interactive Kakoune tutor that adapts to your VS Code Dance keybindings. Upload your{" "}
+          <code>keybindings.json</code> and every lesson, hint, and key chip is rendered for the
+          keys <em>you</em> use — accounting for your OS layout and what's printed on your physical
+          keyboard.
+        </p>
       </header>
       <section className="space-y-3">
         <h2 className="text-xl font-semibold">Get started</h2>
@@ -38,7 +34,7 @@ export function HomePage() {
             <Link href="/lessons" className="text-primary underline">
               Pick a lesson folder
             </Link>{" "}
-            and let Clippy walk you through it.
+            and start.
           </li>
         </ol>
         {bindings.length > 0 && (

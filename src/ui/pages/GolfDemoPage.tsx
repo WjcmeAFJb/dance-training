@@ -1,7 +1,6 @@
 import { Link, useParams } from "wouter";
 import { findDemo } from "../../lessons/golf/catalog.ts";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.tsx";
-import { Clippy } from "../components/Clippy.tsx";
 
 export function GolfDemoPage() {
   const params = useParams<{ id: string }>();
@@ -18,14 +17,11 @@ export function GolfDemoPage() {
   }
   return (
     <div className="max-w-4xl mx-auto py-6 space-y-4">
-      <header className="flex items-start gap-4">
-        <Clippy size={48} state="pointing" />
-        <div>
-          <h1 className="text-2xl font-bold">Vim Golf — {demo.title}</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Original Kakoune solution: <code>{demo.cmd}</code> ({demo.length} keys).
-          </p>
-        </div>
+      <header>
+        <h1 className="text-2xl font-bold">Vim Golf — {demo.title}</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Original Kakoune solution: <code>{demo.cmd}</code> ({demo.length} keys).
+        </p>
       </header>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <Card>
