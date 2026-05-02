@@ -114,12 +114,6 @@ export function LessonRunner({ lesson }: { lesson: Lesson }) {
           )}
         </div>
         <div className="border rounded-lg overflow-hidden">
-          <div className="px-3 py-1.5 text-xs text-muted-foreground bg-secondary flex items-center justify-between">
-            <span>
-              Mode: <span className="font-mono uppercase tracking-wide">{state.mode}</span>
-            </span>
-            {state.count !== undefined && <span className="font-mono">count={state.count}</span>}
-          </div>
           <MonacoBridge
             state={state}
             bindings={bindings}

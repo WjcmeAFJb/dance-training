@@ -1,4 +1,7 @@
 // SVG paperclip mascot. Animation states are just CSS classes on the inner group.
+//
+// Geometry: a single bent wire shaped like a real paperclip, drawn left-to-right.
+// Eyes + brows sit on the upper-left bay (between the inner and outer loops).
 
 import { cn } from "../lib/utils.ts";
 
@@ -15,50 +18,189 @@ export function Clippy({
 }) {
   return (
     <svg
-      viewBox="0 0 100 140"
+      viewBox="0 0 120 160"
       width={size}
-      height={(size * 140) / 100}
+      height={(size * 160) / 120}
       className={cn("text-clippy", state === "idle" && "clippy-bob", className)}
       role="img"
       aria-label="Clippy, your Kakoune assistant"
     >
+      <defs>
+        <linearGradient id="clippyWire" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="hsl(48 95% 75%)" />
+          <stop offset="55%" stopColor="hsl(48 95% 60%)" />
+          <stop offset="100%" stopColor="hsl(36 80% 45%)" />
+        </linearGradient>
+        <filter id="clippyShadow" x="-30%" y="-30%" width="160%" height="160%">
+          <feGaussianBlur in="SourceAlpha" stdDeviation="1.2" />
+          <feOffset dx="0" dy="2" result="off" />
+          <feComponentTransfer>
+            <feFuncA type="linear" slope="0.45" />
+          </feComponentTransfer>
+          <feMerge>
+            <feMergeNode />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
+
       <g
+        filter="url(#clippyShadow)"
         className={cn(
           state === "talking" && "animate-pulse",
           state === "cheering" && "origin-bottom",
         )}
       >
-        {/* Outer paperclip loop */}
+        {/* The paperclip wire — a single continuous bent path.
+            Outer right vertical → bottom hook (left) → left vertical (going up) →
+            top hook (right) → inner right vertical (going down) → inner end. */}
         <path
-          d="M 30 20
-             Q 30 10 50 10
-             Q 70 10 70 25
-             L 70 100
-             Q 70 120 50 120
-             Q 30 120 30 105
-             L 30 35
-             Q 30 25 45 25
-             Q 60 25 60 35
-             L 60 95
-             Q 60 105 50 105
-             Q 40 105 40 95
-             L 40 45"
+          d="
+            M 90 30
+            L 90 130
+            A 20 20 0 0 1 50 130
+            L 50 30
+            A 14 14 0 0 1 78 30
+            L 78 110
+          "
           fill="none"
-          stroke="currentColor"
-          strokeWidth="6"
+          stroke="url(#clippyWire)"
+          strokeWidth="9"
           strokeLinecap="round"
           strokeLinejoin="round"
         />
-        {/* Eyes */}
-        <ellipse cx="42" cy="55" rx="3.2" ry="4" fill="hsl(220 26% 7%)" className="clippy-eye" />
-        <ellipse cx="56" cy="55" rx="3.2" ry="4" fill="hsl(220 26% 7%)" className="clippy-eye" />
-        {/* Pupils */}
-        <circle cx="42" cy="56" r="1.2" fill="hsl(220 13% 91%)" />
-        <circle cx="56" cy="56" r="1.2" fill="hsl(220 13% 91%)" />
+        {/* Faint inner highlight on the outer rail, gives metallic feel */}
+        <path
+          d="M 90 36 L 90 124"
+          fill="none"
+          stroke="hsl(48 100% 92%)"
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          opacity="0.7"
+        />
+
+        {/* Brows */}
+        <Brows state={state} />
+        {/* Eyes — sit on the upper-left bay between inner and outer */}
+        <Eye cx={61} cy={62} state={state} />
+        <Eye cx={79} cy={62} state={state} />
         {/* Mouth */}
         <Mouth state={state} />
+        {/* Pointing finger arrow when state="pointing" */}
+        {state === "pointing" && (
+          <path
+            d="M 96 88 L 116 88 M 110 82 L 116 88 L 110 94"
+            fill="none"
+            stroke="hsl(48 95% 60%)"
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        )}
       </g>
     </svg>
+  );
+}
+
+function Eye({ cx, cy, state }: { cx: number; cy: number; state: ClippyState }) {
+  const isClosed = state === "sleeping";
+  if (isClosed) {
+    return (
+      <line
+        x1={cx - 5}
+        y1={cy}
+        x2={cx + 5}
+        y2={cy}
+        stroke="hsl(220 26% 7%)"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+      />
+    );
+  }
+  return (
+    <g>
+      <ellipse
+        cx={cx}
+        cy={cy}
+        rx="4.6"
+        ry="5.6"
+        fill="white"
+        stroke="hsl(220 26% 7%)"
+        strokeWidth="1.4"
+      />
+      <circle
+        cx={cx + (state === "pointing" ? 1.2 : 0)}
+        cy={cy + (state === "cheering" ? -1 : 0.5)}
+        r="2.2"
+        fill="hsl(220 26% 7%)"
+        className="clippy-eye"
+      />
+      <circle cx={cx + 0.8} cy={cy - 1.5} r="0.8" fill="white" />
+    </g>
+  );
+}
+
+function Brows({ state }: { state: ClippyState }) {
+  const stroke = "hsl(48 95% 30%)";
+  const sw = 2.2;
+  if (state === "cheering") {
+    return (
+      <>
+        <path
+          d="M 56 50 Q 61 46 66 50"
+          fill="none"
+          stroke={stroke}
+          strokeWidth={sw}
+          strokeLinecap="round"
+        />
+        <path
+          d="M 74 50 Q 79 46 84 50"
+          fill="none"
+          stroke={stroke}
+          strokeWidth={sw}
+          strokeLinecap="round"
+        />
+      </>
+    );
+  }
+  if (state === "talking") {
+    return (
+      <>
+        <path
+          d="M 56 51 Q 61 49 66 51"
+          fill="none"
+          stroke={stroke}
+          strokeWidth={sw}
+          strokeLinecap="round"
+        />
+        <path
+          d="M 74 51 Q 79 49 84 51"
+          fill="none"
+          stroke={stroke}
+          strokeWidth={sw}
+          strokeLinecap="round"
+        />
+      </>
+    );
+  }
+  if (state === "sleeping") return null;
+  return (
+    <>
+      <path
+        d="M 56 52 L 66 52"
+        fill="none"
+        stroke={stroke}
+        strokeWidth={sw}
+        strokeLinecap="round"
+      />
+      <path
+        d="M 74 52 L 84 52"
+        fill="none"
+        stroke={stroke}
+        strokeWidth={sw}
+        strokeLinecap="round"
+      />
+    </>
   );
 }
 
@@ -67,22 +209,43 @@ function Mouth({ state }: { state: ClippyState }) {
     case "cheering":
       return (
         <path
-          d="M 41 70 Q 49 80 57 70"
-          fill="none"
+          d="M 64 76 Q 70 86 76 76"
+          fill="hsl(0 60% 35%)"
           stroke="hsl(220 26% 7%)"
-          strokeWidth="2"
+          strokeWidth="1.6"
           strokeLinecap="round"
+          strokeLinejoin="round"
         />
       );
     case "talking":
-      return <ellipse cx="49" cy="72" rx="4" ry="2.4" fill="hsl(220 26% 7%)" />;
+      return (
+        <ellipse
+          cx="70"
+          cy="78"
+          rx="5"
+          ry="3"
+          fill="hsl(0 60% 25%)"
+          stroke="hsl(220 26% 7%)"
+          strokeWidth="1.4"
+        />
+      );
     case "sleeping":
       return (
+        <path
+          d="M 64 78 Q 70 80 76 78"
+          fill="none"
+          stroke="hsl(220 26% 7%)"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+        />
+      );
+    case "pointing":
+      return (
         <line
-          x1="44"
-          y1="70"
-          x2="54"
-          y2="70"
+          x1="65"
+          y1="78"
+          x2="75"
+          y2="78"
           stroke="hsl(220 26% 7%)"
           strokeWidth="2"
           strokeLinecap="round"
@@ -91,10 +254,10 @@ function Mouth({ state }: { state: ClippyState }) {
     default:
       return (
         <path
-          d="M 43 70 Q 49 75 55 70"
+          d="M 64 76 Q 70 81 76 76"
           fill="none"
           stroke="hsl(220 26% 7%)"
-          strokeWidth="2"
+          strokeWidth="1.8"
           strokeLinecap="round"
         />
       );
