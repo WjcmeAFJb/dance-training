@@ -1,0 +1,6 @@
+dist/
+node_modules/
+data/golf/
+data/vimtutor/
+keybindings.json
+pnpm-lock.yaml

@@ -1,0 +1,27 @@
+node_modules/
+dist/
+dist-ssr/
+.DS_Store
+.vscode/
+*.local
+.env
+.env.local
+.env.*.local
+coverage/
+.cache/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# Build artifacts
+.tsgo/
+.eslintcache
+.oxlint-cache
+
+# OS
+Thumbs.db
+
+# Editor swap files
+*.swp
+*.swo

@@ -1,0 +1,1 @@
+xsV\S+:|\}<ret>i<ret><esc><a-,>i<space><space><esc>m<a-x>.<a-&><a-;><a-,>jd<space>q
