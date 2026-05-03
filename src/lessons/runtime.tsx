@@ -1,7 +1,13 @@
 // LessonRunner — owns the per-lesson editor state, dispatches commands,
 // runs the verifier, and drives narration reactions.
+//
+// FSM:
+//   in_progress(stepIndex)  ─ goal met or Skip clicked ─→  in_progress(stepIndex+1)
+//                                                       ─→  completed (when last step done)
+//   completed              ─ verifier disabled, narrator locked, "Next lesson →" CTA shown
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "wouter";
 import type { EditorState } from "../emulator/types.ts";
 import { initialEditorState } from "../emulator/types.ts";
 import { MonacoBridge } from "../emulator/MonacoBridge.tsx";
@@ -13,6 +19,7 @@ import type { Lesson, Step } from "./types.ts";
 import { verify } from "./verifier.ts";
 import { Button } from "../ui/components/ui/button.tsx";
 import { DISCREPANCY_BY_ID } from "../data/discrepancies.ts";
+import { LESSONS } from "./catalog.ts";
 
 export function LessonRunner({ lesson }: { lesson: Lesson }) {
   const bindings = useStore((s) => s.bindings);
@@ -27,6 +34,7 @@ export function LessonRunner({ lesson }: { lesson: Lesson }) {
 
   const [state, setState] = useState<EditorState>(initialState);
   const [stepIndex, setStepIndex] = useState(0);
+  const [completed, setCompleted] = useState(false);
   const [tone, setTone] = useState<NarrationTone>("info");
   const [message, setMessage] = useState<string>(
     () => lesson.steps[0]?.narrate ?? "All steps complete.",
@@ -36,11 +44,18 @@ export function LessonRunner({ lesson }: { lesson: Lesson }) {
 
   const step: Step | undefined = lesson.steps[stepIndex];
 
+  // Find the next lesson in the catalog for the post-completion CTA.
+  const nextLesson = useMemo(() => {
+    const i = LESSONS.findIndex((l) => l.folder === lesson.folder && l.id === lesson.id);
+    return i >= 0 ? LESSONS[i + 1] : undefined;
+  }, [lesson]);
+
   const advance = useCallback(() => {
     const next = stepIndex + 1;
     if (next >= lesson.steps.length) {
+      setCompleted(true);
       setTone("success");
-      setMessage(pickLine("cheer"));
+      setMessage(`${pickLine("cheer")}\n\nLesson complete. The editor is yours to play with.`);
       markComplete(`${lesson.folder}/${lesson.id}`);
       return;
     }
@@ -55,15 +70,16 @@ export function LessonRunner({ lesson }: { lesson: Lesson }) {
     }
   }, [stepIndex, lesson, initialState, markComplete]);
 
-  // Run verifier on every state change.
+  // Run the verifier on every state change — but never once `completed` is
+  // true, so post-completion keypresses don't snap the narrator.
   useEffect(() => {
-    if (!step) return;
+    if (completed || !step) return;
     if (verify(state, step.goal)) advance();
-  }, [state, step, advance]);
+  }, [state, step, advance, completed]);
 
-  // Hint timer.
+  // Hint timer — also disabled after completion.
   useEffect(() => {
-    if (!step) return;
+    if (completed || !step) return;
     if (hintTimer.current) window.clearTimeout(hintTimer.current);
     setShowHint(false);
     if (step.hint) {
@@ -72,18 +88,20 @@ export function LessonRunner({ lesson }: { lesson: Lesson }) {
     return () => {
       if (hintTimer.current) window.clearTimeout(hintTimer.current);
     };
-  }, [stepIndex, step]);
+  }, [stepIndex, step, completed]);
 
   const handleStateChange = useCallback((s: EditorState) => setState(s), []);
 
   const handleReset = () => {
     setState(initialState);
     setStepIndex(0);
+    setCompleted(false);
     setMessage(lesson.steps[0]?.narrate ?? "");
     setTone("info");
   };
 
   const handleSkip = () => {
+    if (completed) return;
     advance();
   };
 
@@ -96,11 +114,15 @@ export function LessonRunner({ lesson }: { lesson: Lesson }) {
             <p className="text-sm text-muted-foreground">{lesson.blurb}</p>
           </div>
           <div className="text-xs text-muted-foreground">
-            Step {stepIndex + 1}/{lesson.steps.length}
+            {completed
+              ? `${lesson.steps.length}/${lesson.steps.length} ✓`
+              : `Step ${stepIndex + 1}/${lesson.steps.length}`}
           </div>
         </header>
         <div className="text-sm leading-relaxed lesson-prose bg-card border rounded-lg p-3">
-          {step ? (
+          {completed ? (
+            <span className="text-emerald-300 font-medium">Lesson complete.</span>
+          ) : step ? (
             <LessonMarkdown source={step.narrate} />
           ) : (
             <span className="text-muted-foreground">All steps complete.</span>
@@ -109,28 +131,41 @@ export function LessonRunner({ lesson }: { lesson: Lesson }) {
         <div className="border rounded-lg overflow-hidden">
           <MonacoBridge state={state} bindings={bindings} onChange={handleStateChange} />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Button variant="outline" size="sm" onClick={handleReset}>
-            Reset lesson
+            {completed ? "Replay lesson" : "Reset lesson"}
           </Button>
-          {step?.hint && !showHint && (
+          {!completed && step?.hint && !showHint && (
             <Button variant="ghost" size="sm" onClick={() => setShowHint(true)}>
               Show hint
             </Button>
           )}
-          {step && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="ml-auto"
-              onClick={handleSkip}
-              title="Skip this step without satisfying its goal"
-            >
-              {stepIndex + 1 === lesson.steps.length ? "Finish lesson" : "Next step →"}
-            </Button>
-          )}
+          <div className="ml-auto flex items-center gap-2">
+            {!completed && step && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleSkip}
+                title="Skip this step without satisfying its goal"
+              >
+                {stepIndex + 1 === lesson.steps.length ? "Finish lesson" : "Next step →"}
+              </Button>
+            )}
+            {completed && nextLesson && (
+              <Button asChild size="sm">
+                <Link href={`/lessons/${nextLesson.folder}/${nextLesson.id}`}>
+                  Next lesson: {nextLesson.title} →
+                </Link>
+              </Button>
+            )}
+            {completed && !nextLesson && (
+              <Button asChild size="sm" variant="outline">
+                <Link href="/lessons">← All lessons</Link>
+              </Button>
+            )}
+          </div>
         </div>
-        {showHint && step?.hint && (
+        {!completed && showHint && step?.hint && (
           <div className="text-sm bg-secondary/50 border rounded-lg p-3 lesson-prose">
             <strong className="text-primary">Hint.</strong> <LessonMarkdown source={step.hint} />
           </div>
@@ -139,7 +174,7 @@ export function LessonRunner({ lesson }: { lesson: Lesson }) {
       </div>
       <div className="flex flex-col gap-3">
         <NarrationPanel tone={tone} message={message} />
-        <ProgressFooter stepCount={lesson.steps.length} index={stepIndex} />
+        <ProgressFooter stepCount={lesson.steps.length} index={stepIndex} completed={completed} />
       </div>
     </div>
   );
@@ -165,7 +200,22 @@ function DiscrepancyCallouts({ ids }: { ids: readonly string[] }) {
   );
 }
 
-function ProgressFooter({ stepCount, index }: { stepCount: number; index: number }) {
+function ProgressFooter({
+  stepCount,
+  index,
+  completed,
+}: {
+  stepCount: number;
+  index: number;
+  completed: boolean;
+}) {
+  if (completed) {
+    return (
+      <div className="text-xs text-emerald-300 p-3 border border-emerald-700/40 rounded-lg bg-emerald-700/10">
+        Done — all {stepCount} steps cleared.
+      </div>
+    );
+  }
   const left = stepCount - index - 1;
   return (
     <div className="text-xs text-muted-foreground p-3 border rounded-lg bg-secondary/40">

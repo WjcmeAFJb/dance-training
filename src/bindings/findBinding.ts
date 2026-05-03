@@ -42,7 +42,8 @@ export function findBindingsFor(
   const matches: ResolvedBinding[] = [];
   let disabled = false;
   for (const b of bindings) {
-    if (b.command !== command) continue;
+    const matchesCommand = b.command === command || b.dispatchedCommands?.includes(command);
+    if (!matchesCommand) continue;
     if (!evaluateWhen(b.when, ctx)) continue;
     if (b.isNegation) {
       disabled = true;
@@ -50,8 +51,28 @@ export function findBindingsFor(
     }
     matches.push(b);
   }
-  matches.sort((a, b) => a.sequence.length - b.sequence.length || a.raw.length - b.raw.length);
+  // Display-rank: prefer a "real" home-row binding over auxiliary ones.
+  // Order:
+  //   1. Single-chord, code-key (e.g. [KeyK]) — what the user's hand reaches for
+  //   2. Single-chord, char-key (e.g. "k")
+  //   3. Single-chord, named-key (e.g. "down" arrow)
+  //   4. Multi-chord (g g, ctrl+k ctrl+s)
+  // Direct command bindings outrank dance.run wrappers within each tier.
+  matches.sort((a, b) => keyRank(a, command) - keyRank(b, command));
   return { disabled, matches };
+}
+
+function keyRank(b: ResolvedBinding, command: string): number {
+  const direct = b.command === command ? 0 : 1;
+  const len = b.sequence.length;
+  const head = b.sequence[0]?.key;
+  let kind = 3;
+  if (len === 1) {
+    if (head?.kind === "code") kind = 0;
+    else if (head?.kind === "char") kind = 1;
+    else kind = 2; // named key (arrow, escape, …)
+  }
+  return kind * 2 + direct;
 }
 
 export function preferredBinding(

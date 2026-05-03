@@ -72,6 +72,16 @@ export interface ResolvedBinding {
   menuName?: string;
   /** Sub-bindings exposed by a dance.openMenu nested map. */
   menuItems?: Record<string, MenuItem>;
+  /**
+   * Commands this binding effectively dispatches when triggered.
+   *
+   * For a direct binding it is `[command]`. For a `dance.run` block it
+   * contains every Dance / VS Code command extracted from the
+   * `commands` array or `code` JS string (with VS Code builtins like
+   * `cursorDown` mapped to their Dance equivalents). Lets `preferredBinding`
+   * find a `dance.run` wrapper when looking up `dance.select.down.jump`.
+   */
+  dispatchedCommands?: string[];
 }
 
 export interface MenuItem {

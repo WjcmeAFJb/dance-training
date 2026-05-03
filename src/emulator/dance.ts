@@ -16,6 +16,7 @@ import {
   splitLines,
 } from "./textOps.ts";
 import type { DanceMode, EditorState, Position, Range } from "./types.ts";
+import { evalPipe } from "./pipe.ts";
 
 type Handler = (s: EditorState, args?: unknown) => EditorState;
 
@@ -204,51 +205,43 @@ function seekWord(s: EditorState, forward: boolean, end: boolean, extend = false
     selections: s.selections.map((r) => {
       const cursor = r.active;
       const newPos = walkWord(s.text, cursor, forward, end);
+      // Non-extend: the new cursor is always the active end; the anchor is
+      // the prior cursor (so the selection spans from where you were to
+      // where you went, regardless of direction). Extend keeps the anchor.
       return extend
         ? { anchor: r.anchor, active: newPos }
-        : { anchor: forward ? { ...cursor } : newPos, active: forward ? newPos : { ...cursor } };
+        : { anchor: { ...cursor }, active: newPos };
     }),
   };
 }
 
+// Walk by flat byte offset so newlines are just whitespace and we never have
+// to special-case crossing line boundaries.
 function walkWord(text: string, from: Position, forward: boolean, end: boolean): Position {
-  const lines = splitLines(text);
-  let line = from.line;
-  let col = from.col;
-  const isWord = (c?: string) => !!c && WORD_RE.test(c);
-  const charAt = (l: number, c: number) => lines[l]?.[c] ?? "";
+  const isWord = (c: string) => WORD_RE.test(c);
+  const isWS = (c: string) => /\s/.test(c);
+  const at = (i: number): string => (i >= 0 && i < text.length ? text[i]! : "");
+
+  let off = offsetOf(text, from);
 
   if (forward) {
     if (end) {
-      // Skip whitespace, then advance to end of next word.
-      while (line < lines.length && /\s/.test(charAt(line, col))) {
-        col++;
-        if (col > (lines[line]?.length ?? 0)) {
-          line++;
-          col = 0;
-        }
-      }
-      while (line < lines.length && isWord(charAt(line, col))) {
-        col++;
-      }
-      return clampPosition(text, { line, col });
+      while (off < text.length && isWS(at(off))) off++;
+      while (off < text.length && isWord(at(off))) off++;
+    } else {
+      while (off < text.length && isWord(at(off))) off++;
+      while (off < text.length && isWS(at(off))) off++;
     }
-    // Advance through word, then through whitespace.
-    while (line < lines.length && isWord(charAt(line, col))) col++;
-    while (line < lines.length && /\s/.test(charAt(line, col))) {
-      col++;
-      if (col > (lines[line]?.length ?? 0)) {
-        line++;
-        col = 0;
-      }
-    }
-    return clampPosition(text, { line, col });
+    return positionAt(text, off);
   }
-  // Backward.
-  col--;
-  while (line >= 0 && col >= 0 && /\s/.test(charAt(line, col))) col--;
-  while (line >= 0 && col >= 0 && isWord(charAt(line, col))) col--;
-  return clampPosition(text, { line, col: col + 1 });
+
+  // Backward — Kakoune's `b`: step left over whitespace, then over the word.
+  off--;
+  while (off >= 0 && isWS(at(off))) off--;
+  while (off >= 0 && isWord(at(off))) off--;
+  off++;
+  if (off < 0) off = 0;
+  return positionAt(text, off);
 }
 
 // ── seek char (f / t) ─────────────────────────────────────────────────────────
@@ -512,6 +505,103 @@ handlers["dance.history.repeat"] = (s) => {
   const last = [...s.commandLog].reverse().find((e) => e.id !== "dance.history.repeat");
   if (!last) return s;
   return dispatch(s, last.id, last.args);
+};
+
+// ── pipe (Dance JS-expression / shellish) ──────────────────────────────────────
+
+handlers["dance.selections.pipe.replace"] = (s, args) => pipeAndReplace(s, args, "replace");
+handlers["dance.selections.pipe"] = (s, args) => pipeAndReplace(s, args, "insert");
+handlers["dance.selections.pipe.append"] = (s, args) => pipeAndReplace(s, args, "append");
+handlers["dance.selections.pipe.prepend"] = (s, args) => pipeAndReplace(s, args, "prepend");
+
+function pipeAndReplace(
+  s: EditorState,
+  args: unknown,
+  mode: "replace" | "insert" | "append" | "prepend",
+): EditorState {
+  const expr = (args as { input?: string })?.input ?? "";
+  if (!expr) return s;
+  const allText = s.selections.map((r) => rangeText(s.text, r));
+  const transformed = allText.map((t, i) =>
+    evalPipe(expr, {
+      selectionText: t,
+      selectionIndex: i,
+      totalSelections: allText.length,
+      allSelections: allText,
+    }),
+  );
+  let text = s.text;
+  // Process selections back-to-front so earlier offsets aren't invalidated.
+  const ordered = s.selections
+    .map((r, i) => ({ r, i }))
+    .sort(
+      (a, b) => offsetOf(s.text, orderRange(b.r).start) - offsetOf(s.text, orderRange(a.r).start),
+    );
+  for (const { r, i } of ordered) {
+    const replacement =
+      mode === "replace"
+        ? (transformed[i] ?? "")
+        : mode === "insert"
+          ? `${transformed[i] ?? ""}${rangeText(text, r)}`
+          : mode === "append"
+            ? `${rangeText(text, r)}${transformed[i] ?? ""}`
+            : `${transformed[i] ?? ""}${rangeText(text, r)}`;
+    text = replaceRange(text, r, replacement);
+  }
+  return { ...s, text };
+}
+
+// ── colon-mode commands (`:foo arg`) ─────────────────────────────────────────
+// Most golf solutions don't use these; the few that do tend to use:
+//   :w / :write       — save (no-op in our app, just log)
+//   :sort             — sort whole buffer
+//   :reverse          — reverse lines
+//   :unique           — uniq
+//   :upper / :lower   — case-fold whole buffer
+//   :trim             — trim each line
+//   :delete           — delete current selection
+//   :goto N           — jump to line N
+const COLON_HANDLERS: Record<string, (s: EditorState, rest: string) => EditorState> = {
+  w: (s) => s,
+  write: (s) => s,
+  sort: (s) => ({ ...s, text: s.text.split("\n").sort().join("\n") }),
+  reverse: (s) => ({ ...s, text: s.text.split("\n").reverse().join("\n") }),
+  unique: (s) => {
+    const seen = new Set<string>();
+    return {
+      ...s,
+      text: s.text
+        .split("\n")
+        .filter((l) => (seen.has(l) ? false : (seen.add(l), true)))
+        .join("\n"),
+    };
+  },
+  upper: (s) => ({ ...s, text: s.text.toUpperCase() }),
+  lower: (s) => ({ ...s, text: s.text.toLowerCase() }),
+  trim: (s) => ({
+    ...s,
+    text: s.text
+      .split("\n")
+      .map((l) => l.trim())
+      .join("\n"),
+  }),
+  delete: (s) => yankAndDelete(s, true),
+  goto: (s, rest) => {
+    const n = Number(rest);
+    if (!Number.isFinite(n) || n < 1) return s;
+    const lines = splitLines(s.text);
+    const line = Math.min(lines.length - 1, n - 1);
+    return { ...s, selections: [{ anchor: { line, col: 0 }, active: { line, col: 1 } }] };
+  },
+};
+
+handlers["dance.colon"] = (s, args) => {
+  const raw = (args as { input?: string })?.input ?? "";
+  const trimmed = raw.replace(/^:/, "").trim();
+  if (!trimmed) return s;
+  const [head, ...rest] = trimmed.split(/\s+/);
+  const fn = COLON_HANDLERS[(head ?? "").toLowerCase()];
+  return fn ? fn(s, rest.join(" ")) : s;
 };
 
 // ── public helpers ────────────────────────────────────────────────────────────

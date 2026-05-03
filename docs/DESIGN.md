@@ -659,7 +659,51 @@ After all agents finish, a consolidator pass:
 - Validates `requires`/`teaches` against the canonical action list at startup.
 - Builds the sidebar tree from the catalog.
 
-## 16. Risks & open questions
+## 16. Future work — running the real Dance extension
+
+Today's emulator is hand-rolled: every Dance command in `src/emulator/dance.ts`
+is a small TypeScript function that mutates `EditorState`. It covers the
+commands lessons need (motion, edit, paste, replace, case, search, pipe, colon)
+but it is **not** the same code path Dance ships in VS Code. So edge cases
+inevitably drift — different word-boundary handling, missing object-class
+behaviours, no tree-sitter syntax objects, and so on.
+
+The honest fix is to **load the real Dance extension on top of a polyfilled
+VS Code API**. The shape of that effort:
+
+1. **Polyfill `vscode`** — implement enough of `vscode.window`,
+   `vscode.workspace`, `vscode.commands`, `vscode.Position`, `vscode.Range`,
+   `vscode.Selection`, `vscode.TextEditor`, `vscode.TextDocument`,
+   `vscode.Uri`, `vscode.EventEmitter`, `vscode.Disposable`, and the
+   command-keybinding registry that Dance touches.
+2. **Bridge to Monaco** — back the polyfill's `TextEditor` and
+   `TextDocument` with Monaco's model so edits flow both ways.
+3. **Vendor compiled Dance** — pull the compiled `dance.js` from the
+   published VSIX, expose our polyfill to it via a module shim
+   (`vite-plugin-virtual` resolving the `vscode` import to our module).
+4. **Trigger keybindings the way VS Code does** — read Dance's
+   `package.json` contributes.keybindings + the user's overrides,
+   evaluate `when` clauses against our context map, and dispatch by
+   command id instead of running our own dispatcher.
+
+`@codingame/monaco-vscode-api` does most of step 1 (and steps 2 & 4) already
+but it adds ~10 MB to the bundle and changes how Monaco is instantiated; it
+is closer to "VS Code in the browser" than "Monaco with extras". A leaner
+in-house polyfill of the ~30-method subset Dance actually uses is
+plausible but takes a few days of careful work — bigger than a single
+iteration. In the meantime the emulator's gaps are tracked here:
+
+- No tree-sitter syntax objects (`dance.seek.syntax.*`).
+- Word boundaries are ASCII-only (`/[A-Za-z0-9_]/`); real Dance defers to VS
+  Code's word-pattern config.
+- No live regex preview during `/` or `s`.
+- Macros are partially recorded but not replayed.
+- `>` and `<` indent by hard-coded two spaces, not the editor's tab stop.
+
+When the real-Dance backplane lands, the emulator becomes a fallback for
+the demos that ship without bindings.
+
+## 17. Risks & open questions
 
 - **Monaco fidelity.** Some Kakoune-isms (selection-always-non-empty, multi-selection at
   the model level) don't map 1:1 to Monaco. We work around it; lessons that depend on

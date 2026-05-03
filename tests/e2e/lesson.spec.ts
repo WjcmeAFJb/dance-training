@@ -177,6 +177,67 @@ test.describe("Monaco editor integration", () => {
     await expect(page.locator("text=/Step 3\\/5/")).toBeVisible({ timeout: 3000 });
   });
 
+  test("Finish lesson locks the FSM and shows Next-lesson CTA", async ({ page }) => {
+    await page.goto("/#/lessons/02-basics/02-cursor-motion");
+    await page.waitForSelector(".monaco-editor", { timeout: 30000 });
+
+    // Walk the lesson with whatever button is appropriate for each step:
+    //   "Next step →" while we have steps left, "Finish lesson" on the last.
+    // The verifier may auto-advance some steps (when the cursor already
+    // satisfies a step's goal), so we just keep clicking until completion.
+    for (let i = 0; i < 12; i++) {
+      const finish = page.getByRole("button", { name: /Finish lesson/ });
+      if (await finish.isVisible()) {
+        await finish.click();
+        break;
+      }
+      const next = page.getByRole("button", { name: /Next step/ });
+      if (await next.isVisible()) {
+        await next.click();
+        await page.waitForTimeout(50);
+        continue;
+      }
+      // No advance buttons → already in completed state.
+      break;
+    }
+
+    // FSM in `completed`.
+    await expect(page.locator("text=/5\\/5 ✓/")).toBeVisible({ timeout: 3000 });
+    await expect(page.getByRole("link", { name: /Next lesson:/ })).toBeVisible();
+    await expect(page.getByText("Lesson complete.").first()).toBeVisible();
+
+    // Verifier is disabled: keypresses must not snap the narrator back to a
+    // step text.
+    await page.keyboard.press("l");
+    await page.keyboard.press("k");
+    await page.keyboard.press("h");
+    await page.waitForTimeout(200);
+    await expect(page.getByText("Lesson complete.").first()).toBeVisible();
+    await expect(page.getByRole("link", { name: /Next lesson:/ })).toBeVisible();
+  });
+
+  test("vimtutor 1.1 'down' chip resolves through dance.run to the user's [KeyK] binding", async ({
+    page,
+  }) => {
+    await page.goto("/#/upload");
+    await page.setInputFiles('input[type="file"]', {
+      name: "keybindings.json",
+      mimeType: "application/json",
+      buffer: Buffer.from(USER_KEYBINDINGS, "utf8"),
+    });
+    await expect(page.getByText(/Loaded/).first()).toBeVisible({ timeout: 10000 });
+
+    // Vimtutor 1.1 narrates {{key:dance.select.down.jump}}. The user has
+    // bound [KeyK] to a dance.run block calling dance.select.down.jump, so
+    // the chip should render the OS letter at KeyK ('k' on QWERTY) — NOT
+    // 'j' (the Dance default fallback).
+    await page.goto("/#/lessons/01-vimtutor/01-cursor-motion");
+    await page.waitForSelector(".monaco-editor", { timeout: 30000 });
+    const narrationText = (await page.locator(".lesson-prose").first().textContent()) ?? "";
+    // Should mention 'k' (the actual key) in the narration chip area.
+    expect(narrationText).toMatch(/\bk\b/);
+  });
+
   test("on Colemak OS, key chips render the OS letter (n) instead of the QWERTY position (j)", async ({
     page,
   }) => {

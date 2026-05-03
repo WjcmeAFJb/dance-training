@@ -21,6 +21,7 @@ import { stringifySequence } from "../bindings/parseKey.ts";
 import type { EditorState } from "./types.ts";
 import { offsetOf, positionAt } from "./textOps.ts";
 import { ModeBar } from "../ui/components/ModeBar.tsx";
+import { CommandPrompt, type PromptKind } from "../ui/components/CommandPrompt.tsx";
 
 interface MonacoBridgeProps {
   state: EditorState;
@@ -43,6 +44,7 @@ export function MonacoBridge({
   const chordHistoryRef = useRef<KeyChord[]>([]);
   const disposablesRef = useRef<IDisposable[]>([]);
   const [partialChord, setPartialChord] = useState<string>("");
+  const [prompt, setPrompt] = useState<{ kind: PromptKind; commandId: string } | null>(null);
 
   // Keep refs to the latest props so handlers attached during onMount always
   // see fresh values without re-subscription.
@@ -92,6 +94,15 @@ export function MonacoBridge({
         altKey: e.altKey,
         metaKey: e.metaKey,
       });
+
+      // Built-in colon / pipe / search prompts — open a one-line CommandPrompt.
+      const promptKind = matchPromptKind(chord);
+      if (promptKind) {
+        chordHistoryRef.current = [];
+        setPartialChord("");
+        setPrompt(promptKind);
+        return;
+      }
 
       const next = [...chordHistoryRef.current, chord];
       const result = findMatchingBinding(next, bindingsRef.current, cur.mode);
@@ -201,8 +212,14 @@ export function MonacoBridge({
       glyphMargin: false,
       folding: false,
       renderLineHighlight: "all",
-      cursorStyle: state.mode === "insert" ? "line" : "block",
-      cursorBlinking: state.mode === "insert" ? "blink" : "smooth",
+      // Hide Monaco's own cursor in normal-mode-style modes — the selection
+      // highlight already shows the active cell, and a separate block caret
+      // sits *after* the highlighted character (a real Monaco quirk that
+      // looks like a visual glitch). In insert mode use a normal blinking
+      // line caret.
+      cursorStyle: state.mode === "insert" ? "line" : "line",
+      cursorBlinking: state.mode === "insert" ? "blink" : "solid",
+      cursorWidth: state.mode === "insert" ? 2 : 0,
       readOnly: false,
       tabSize: 2,
       smoothScrolling: true,
@@ -217,13 +234,24 @@ export function MonacoBridge({
   );
 
   return (
-    <div className={className}>
+    <div className={cn(className, "relative")}>
       <ModeBar
         mode={state.mode}
         {...(state.count !== undefined ? { count: state.count } : {})}
         {...(partialChord ? { partialChord } : {})}
         selectionsCount={state.selections.length}
       />
+      {prompt && (
+        <CommandPrompt
+          kind={prompt.kind}
+          onSubmit={(input) => {
+            const cmd = prompt.commandId;
+            setPrompt(null);
+            onChangeRef.current(dispatch(stateRef.current, cmd, { input }));
+          }}
+          onCancel={() => setPrompt(null)}
+        />
+      )}
       <Editor
         height={height}
         language="markdown"
@@ -240,6 +268,26 @@ export function MonacoBridge({
       />
     </div>
   );
+}
+
+function cn(...xs: (string | undefined | false | null)[]): string {
+  return xs.filter(Boolean).join(" ");
+}
+
+function matchPromptKind(chord: KeyChord): { kind: PromptKind; commandId: string } | undefined {
+  if (chord.modifiers.length === 0 && chord.key.kind === "char") {
+    if (chord.key.char === ":") return { kind: "colon", commandId: "dance.colon" };
+    if (chord.key.char === "|") return { kind: "pipe", commandId: "dance.selections.pipe.replace" };
+    if (chord.key.char === "!") return { kind: "pipe.prepend", commandId: "dance.selections.pipe" };
+    if (chord.key.char === "/") return { kind: "search", commandId: "dance.search" };
+    if (chord.key.char === "?") return { kind: "search", commandId: "dance.search.extend" };
+  }
+  if (chord.modifiers.length === 1 && chord.modifiers[0] === "alt" && chord.key.kind === "char") {
+    if (chord.key.char === "|") return { kind: "pipe", commandId: "dance.selections.pipe.append" };
+    if (chord.key.char === "!")
+      return { kind: "pipe.append", commandId: "dance.selections.pipe.append" };
+  }
+  return undefined;
 }
 
 function syncSelectionsToMonaco(ed: MonacoEditor.IStandaloneCodeEditor, state: EditorState) {

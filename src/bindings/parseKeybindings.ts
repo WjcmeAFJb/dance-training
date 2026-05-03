@@ -93,6 +93,7 @@ export async function parseUserKeybindings(jsonc: string): Promise<ParseResult> 
       const menuName = extractMenuName(command, args);
       const menuItems = extractMenuItems(command, args);
 
+      const dispatched = computeDispatchedCommands(command, args);
       const r: ResolvedBinding = {
         raw: raw.key,
         sequence,
@@ -103,6 +104,7 @@ export async function parseUserKeybindings(jsonc: string): Promise<ParseResult> 
         isDanceCommand,
         ...(menuName !== undefined ? { menuName } : {}),
         ...(menuItems !== undefined ? { menuItems } : {}),
+        ...(dispatched.length > 0 ? { dispatchedCommands: dispatched } : {}),
       };
       bindings.push(r);
     } catch (e) {
@@ -153,6 +155,57 @@ function extractMenuItems(command: string, args: unknown): Record<string, MenuIt
     }
   }
   return out;
+}
+
+// Mirrors the dispatch path in src/emulator/keypress.ts.applyBinding so we can
+// surface the commands this binding effectively runs to the binding lookup.
+const VSCODE_TO_DANCE: Record<string, string> = {
+  cursorDown: "dance.select.down.jump",
+  cursorUp: "dance.select.up.jump",
+  cursorLeft: "dance.select.left.jump",
+  cursorRight: "dance.select.right.jump",
+  cursorDownSelect: "dance.select.down.extend",
+  cursorUpSelect: "dance.select.up.extend",
+  cursorLeftSelect: "dance.select.left.extend",
+  cursorRightSelect: "dance.select.right.extend",
+  cursorHome: "dance.select.lineStart",
+  cursorEnd: "dance.select.lineEnd",
+  cursorTop: "dance.select.firstLine.jump",
+  cursorBottom: "dance.select.lastLine.jump",
+  cursorWordLeft: "dance.seek.word.backward",
+  cursorWordRight: "dance.seek.word",
+  cursorWordEndRight: "dance.seek.wordEnd",
+  cursorPageUp: "dance.select.firstVisibleLine.jump",
+  cursorPageDown: "dance.select.lastVisibleLine.jump",
+  undo: "dance.history.undo",
+  redo: "dance.history.redo",
+};
+
+const EXECUTE_CMD_RE = /executeCommand\s*\(\s*['"`]([^'"`]+)['"`]/g;
+
+function computeDispatchedCommands(command: string, args: unknown): string[] {
+  if (command !== "dance.run") return [command];
+  if (typeof args !== "object" || args === null) return [command];
+  const a = args as { commands?: unknown; code?: unknown };
+  const out: string[] = [];
+  if (Array.isArray(a.commands)) {
+    for (const entry of a.commands) {
+      if (Array.isArray(entry) && typeof entry[0] === "string") {
+        const id = entry[0].startsWith(".") ? `dance${entry[0]}` : entry[0];
+        out.push(VSCODE_TO_DANCE[id] ?? id);
+      }
+    }
+  }
+  if (a.code !== undefined) {
+    const code = Array.isArray(a.code) ? a.code.join("\n") : String(a.code);
+    EXECUTE_CMD_RE.lastIndex = 0;
+    for (let m = EXECUTE_CMD_RE.exec(code); m !== null; m = EXECUTE_CMD_RE.exec(code)) {
+      const id = m[1]!;
+      out.push(VSCODE_TO_DANCE[id] ?? id);
+    }
+  }
+  // De-duplicate, preserving order.
+  return Array.from(new Set(out));
 }
 
 async function sha1(s: string): Promise<string> {
