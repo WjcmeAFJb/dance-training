@@ -177,6 +177,33 @@ test.describe("Monaco editor integration", () => {
     await expect(page.locator("text=/Step 3\\/5/")).toBeVisible({ timeout: 3000 });
   });
 
+  test("clicking Next-lesson opens the next lesson FRESH (not pre-completed)", async ({ page }) => {
+    await page.goto("/#/lessons/02-basics/02-cursor-motion");
+    await page.waitForSelector(".monaco-editor", { timeout: 30000 });
+    // Skip our way to completion.
+    for (let i = 0; i < 12; i++) {
+      const finish = page.getByRole("button", { name: /Finish lesson/ });
+      if (await finish.isVisible()) {
+        await finish.click();
+        break;
+      }
+      const next = page.getByRole("button", { name: /Next step/ });
+      if (await next.isVisible()) {
+        await next.click();
+        await page.waitForTimeout(50);
+        continue;
+      }
+      break;
+    }
+    await expect(page.getByRole("link", { name: /Next lesson:/ })).toBeVisible();
+    // Click into the next lesson.
+    await page.getByRole("link", { name: /Next lesson:/ }).click();
+    await page.waitForSelector(".monaco-editor", { timeout: 30000 });
+    // The new lesson must show "Step 1/N", NOT a "✓" completion marker.
+    await expect(page.locator("text=/Step 1\\//")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/Lesson complete\./)).toHaveCount(0);
+  });
+
   test("Finish lesson locks the FSM and shows Next-lesson CTA", async ({ page }) => {
     await page.goto("/#/lessons/02-basics/02-cursor-motion");
     await page.waitForSelector(".monaco-editor", { timeout: 30000 });

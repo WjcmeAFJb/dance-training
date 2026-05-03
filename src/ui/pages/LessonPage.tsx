@@ -15,9 +15,13 @@ export function LessonPage() {
       </div>
     );
   }
+  // `key` forces a fresh mount when navigating between lessons so all the
+  // runner's local state — completed flag, stepIndex, narration tone, the
+  // editor buffer — resets cleanly. Without it React reconciles the same
+  // LessonRunner instance and the new lesson opens already-finished.
   return (
     <div className="h-full">
-      <LessonRunner lesson={lesson} />
+      <LessonRunner key={`${lesson.folder}/${lesson.id}`} lesson={lesson} />
     </div>
   );
 }
