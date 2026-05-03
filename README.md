@@ -1,10 +1,15 @@
 # Dance Training
 
-End-to-end demo (recorded by the Playwright suite) is at
-[`docs/demos/cursor-motion-lesson.webm`](docs/demos/cursor-motion-lesson.webm).
-It walks the **Cursor motion** lesson to completion, intercepting every key
-through Monaco's `onKeyDown`, dispatching to the Dance emulator, and watching
-the verifier advance the step counter.
+End-to-end demos (recorded by the Playwright suite):
+
+- [`docs/demos/cursor-motion-lesson.webm`](docs/demos/cursor-motion-lesson.webm)
+  — walks the **Cursor motion** lesson to completion using fallback Kak
+  defaults (no uploaded keybindings).
+- [`docs/demos/colemak-keybindings-lesson.webm`](docs/demos/colemak-keybindings-lesson.webm)
+  — uploads the bundled `keybindings.json` (a Colemak-tailored Dance setup
+  with `dance.run`-with-`code` blocks for the `e` and `i` keys) and drives
+  the same lesson with the user's actual keys (Colemak `o e i n` = raw
+  `Semicolon KeyK KeyL KeyJ`).
 
 An interactive web tutor that teaches Kakoune-style modal editing **using your own VS Code Dance keybindings**. Upload your `keybindings.json` and the lessons, hints, and Clippy suggestions all render the keys _you_ use — taking your OS keyboard layout and the labels printed on your hardware into account.
 

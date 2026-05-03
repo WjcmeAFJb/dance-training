@@ -1,4 +1,10 @@
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const USER_KEYBINDINGS = readFileSync(resolve(HERE, "../../keybindings.json"), "utf8");
 
 test.describe("Monaco editor integration", () => {
   test("intercepts keys in normal mode and advances a lesson to completion", async ({ page }) => {
@@ -20,9 +26,10 @@ test.describe("Monaco editor integration", () => {
     await expect(page.getByText("NORMAL")).toBeVisible({ timeout: 10000 });
     await expect(page.locator("text=/Step 1\\/5/")).toBeVisible();
 
-    // Click the editor — in normal mode this should NOT move the cursor
-    // (the bridge re-asserts our state on every mouse-up).
-    await page.locator(".monaco-editor").first().click();
+    // The bridge calls ed.focus() in onMount so the textarea is already
+    // focused for keypresses. We deliberately don't click — clicking moves
+    // the cursor (it's the supported way to position in normal mode), which
+    // would invalidate the lesson's initial selection.
     await page.waitForTimeout(200);
 
     await page.keyboard.press("l");
@@ -104,5 +111,59 @@ test.describe("Monaco editor integration", () => {
     // Esc returns to NORMAL.
     await page.keyboard.press("Escape");
     await expect(page.getByText("NORMAL")).toBeVisible({ timeout: 3000 });
+  });
+
+  test("uses the user's uploaded keybindings (Colemak n/e/i/o = raw KeyJ/KeyK/KeyL/Semicolon)", async ({
+    page,
+  }) => {
+    // Upload the bundled sample keybindings.json (same one in the repo root).
+    // The file is large (~280 KB / ~10k lines) — fill() types char-by-char and
+    // would time out, so use the file-input form which reads it natively.
+    await page.goto("/#/upload");
+    await page.setInputFiles('input[type="file"]', {
+      name: "keybindings.json",
+      mimeType: "application/json",
+      buffer: Buffer.from(USER_KEYBINDINGS, "utf8"),
+    });
+    await expect(page.getByText(/Loaded/).first()).toBeVisible({ timeout: 10000 });
+
+    // Now drive the cursor-motion lesson with the user's actual keys.
+    await page.goto("/#/lessons/02-basics/02-cursor-motion");
+    await page.waitForSelector(".monaco-editor", { timeout: 30000 });
+    await expect(page.getByText("NORMAL")).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(200);
+
+    // The user's bindings (verified by reading the file):
+    //   [Semicolon] → dance.select.right.jump   (Colemak 'o')
+    //   [KeyK]      → dance.run code → cursorDown / dance.select.down.jump  (Colemak 'e')
+    //   [KeyL]      → dance.run code → cursorUp / dance.select.up.jump      (Colemak 'i')
+    //   [KeyJ]      → dance.select.left.jump    (Colemak 'n')
+    //
+    // Step 1 wants cursor at (0, 2) — press Semicolon (right).
+    await page.keyboard.press("Semicolon");
+    await expect(page.locator("text=/Step 2\\/5/")).toBeVisible({ timeout: 5000 });
+
+    // Step 2 wants (1, 2) — press k (down via dance.run code form).
+    await page.keyboard.press("k");
+    await expect(page.locator("text=/Step 3\\/5/")).toBeVisible({ timeout: 5000 });
+
+    // Step 3 wants (0, 2) — press l (up via dance.run code form).
+    await page.keyboard.press("l");
+    await expect(page.locator("text=/Step 4\\/5/")).toBeVisible({ timeout: 5000 });
+
+    // Step 4 wants (0, 1) — press j (left).
+    await page.keyboard.press("j");
+    await expect(page.locator("text=/Step 5\\/5/")).toBeVisible({ timeout: 5000 });
+
+    // Step 5: navigate to (3, 3) — three downs and two rights.
+    await page.keyboard.press("k");
+    await page.keyboard.press("k");
+    await page.keyboard.press("k");
+    await page.keyboard.press("Semicolon");
+    await page.keyboard.press("Semicolon");
+
+    await expect(page.getByText(/Lesson complete!|Boom — that one's done\./).first()).toBeVisible({
+      timeout: 5000,
+    });
   });
 });

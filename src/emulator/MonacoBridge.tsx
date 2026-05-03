@@ -94,7 +94,7 @@ export function MonacoBridge({
       });
 
       const next = [...chordHistoryRef.current, chord];
-      const result = findMatchingBinding(next, bindingsRef.current);
+      const result = findMatchingBinding(next, bindingsRef.current, cur.mode);
       if (result.match) {
         chordHistoryRef.current = [];
         setPartialChord("");
@@ -115,7 +115,7 @@ export function MonacoBridge({
           key: { kind: "char", char: e.browserEvent.key.toLowerCase() },
         };
         const charNext = [...chordHistoryRef.current, charChord];
-        const charResult = findMatchingBinding(charNext, bindingsRef.current);
+        const charResult = findMatchingBinding(charNext, bindingsRef.current, cur.mode);
         if (charResult.match) {
           chordHistoryRef.current = [];
           setPartialChord("");
@@ -141,20 +141,32 @@ export function MonacoBridge({
       setPartialChord("");
     });
 
-    // 2. Mouse-up: in normal mode, *re-assert* our selection on Monaco so a
-    //    click can't drag the cursor away from where Dance commands placed it.
-    //    In insert mode we let clicks reposition naturally.
-    //
-    //    (Allowing click-to-position breaks lesson goals like
-    //    `cursor-at: line=0, col=2` because clicking lands the cursor at the
-    //    click coordinates, then any subsequent Dance motion starts from
-    //    there. Real users would also find it confusing — a click while in
-    //    Normal silently invalidates everything you've selected with `s`,
-    //    `<a-i>w`, etc. Better to keep Normal-mode selection authoritative.)
+    // 2. Mouse-up: sync Monaco's clicked-to position back into our state so
+    //    the user can position the cursor with the mouse. We inflate to one
+    //    cell wide to keep the Kak invariant.
     const mouseUpDispose = ed.onMouseUp(() => {
       const cur = stateRef.current;
       if (cur.mode === "insert") return;
-      syncSelectionsToMonaco(ed, cur);
+      const sels = ed.getSelections() ?? [];
+      if (!sels.length) return;
+      const next = sels.map((s) => ({
+        anchor: { line: s.selectionStartLineNumber - 1, col: s.selectionStartColumn - 1 },
+        active: { line: s.positionLineNumber - 1, col: s.positionColumn - 1 },
+      }));
+      const inflated = next.map((r) => {
+        if (r.anchor.line === r.active.line && r.anchor.col === r.active.col) {
+          const lines = cur.text.split("\n");
+          const lineLen = lines[r.active.line]?.length ?? 0;
+          if (r.active.col < lineLen) {
+            return { anchor: r.anchor, active: { line: r.active.line, col: r.active.col + 1 } };
+          }
+          if (r.active.col > 0) {
+            return { anchor: { line: r.active.line, col: r.active.col - 1 }, active: r.active };
+          }
+        }
+        return r;
+      });
+      onChangeRef.current({ ...cur, selections: inflated });
     });
 
     disposablesRef.current.push(keyDownDispose, mouseUpDispose);
