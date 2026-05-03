@@ -9,5 +9,5 @@
     "no-console": "off",
     "no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }]
   },
-  "ignorePatterns": ["dist", "node_modules", "data/golf", "data/vimtutor", "**/*.gen.ts"]
+  "ignorePatterns": ["dist", "node_modules", "data/golf", "data/vimtutor", "vendor", "**/*.gen.ts"]
 }
