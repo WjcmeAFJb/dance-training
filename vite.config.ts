@@ -47,6 +47,9 @@ export default defineConfig({
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
       "@data": fileURLToPath(new URL("./data", import.meta.url)),
+      // The vendored Dance bundle does `import * as vscode from "vscode"`; we
+      // resolve that to our in-browser polyfill instead of node_modules.
+      vscode: fileURLToPath(new URL("./src/vscode/index.ts", import.meta.url)),
     },
   },
   build: {
@@ -62,6 +65,18 @@ export default defineConfig({
             id.includes("@radix-ui")
           )
             return "react-vendor";
+          // Force the vscode polyfill, the dance bundle, and the host bridge
+          // into a single chunk so the polyfill state (extensions registry,
+          // command map, etc.) is a single in-memory singleton — otherwise
+          // Vite duplicates the polyfill module per consumer and Dance ends
+          // up reading from an empty extensions.all.
+          if (
+            id.includes("/src/vscode/") ||
+            id.includes("/src/dance/") ||
+            id.includes("vendor/dance.js") ||
+            id.includes("vendor/dance.package.json")
+          )
+            return "dance";
         },
       },
     },

@@ -62,6 +62,30 @@ export function MonacoBridge({
     syncSelectionsToMonaco(ed, stateRef.current);
     ed.focus();
 
+    // Real Dance integration — load and activate the vendored extension.
+    // Surface the loaded handle and any error on `window` so e2e tests
+    // can introspect what happened.
+    void import("../dance/host.ts")
+      .then(({ bindMonaco }) => bindMonaco(ed))
+      .then((handle) => {
+        handle.onCommand((e) => {
+          if (e.id.startsWith("dance.") || e.id.startsWith("cursor")) {
+            const cur = stateRef.current;
+            onChangeRef.current({
+              ...cur,
+              commandLog: [...cur.commandLog, { id: e.id }],
+            });
+          }
+        });
+        const w = window as unknown as { __dance?: unknown; __danceErr?: unknown };
+        w.__dance = handle;
+      })
+      .catch((err: unknown) => {
+        console.error("[dance] host bind failed:", err);
+        const w = window as unknown as { __danceErr?: unknown };
+        w.__danceErr = err instanceof Error ? `${err.message}\n${err.stack ?? ""}` : String(err);
+      });
+
     // 1. Key handler — Monaco's own API; fires before textarea input.
     const keyDownDispose = ed.onKeyDown((e) => {
       const cur = stateRef.current;

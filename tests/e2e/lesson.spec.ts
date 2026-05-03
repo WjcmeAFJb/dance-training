@@ -265,6 +265,51 @@ test.describe("Monaco editor integration", () => {
     expect(narrationText).toMatch(/\bk\b/);
   });
 
+  test("real Dance extension loads and registers its commands", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}\n${e.stack ?? ""}`));
+    page.on("console", (msg) => {
+      if (msg.type() === "error") errors.push(`console.error: ${msg.text()}`);
+    });
+
+    await page.goto("/#/lessons/02-basics/02-cursor-motion");
+    await page.waitForSelector(".monaco-editor", { timeout: 30000 });
+    await page
+      .waitForFunction(
+        () => {
+          const w = window as unknown as { __dance?: unknown; __danceErr?: unknown };
+          return Boolean(w.__dance) || Boolean(w.__danceErr);
+        },
+        undefined,
+        { timeout: 15000 },
+      )
+      .catch(async () => {
+        const dump = await page.evaluate(() => ({
+          dance: Boolean((window as unknown as { __dance?: unknown }).__dance),
+          err: (window as unknown as { __danceErr?: string }).__danceErr,
+        }));
+        throw new Error(
+          `Dance never loaded. dance=${dump.dance}, err=${dump.err}\nerrors=${errors.join("\n")}`,
+        );
+      });
+    const danceErr = await page.evaluate(
+      () => (window as unknown as { __danceErr?: string }).__danceErr,
+    );
+    if (danceErr) throw new Error(`Dance host error: ${danceErr}`);
+    const result = await page.evaluate(async () => {
+      const dance = (window as unknown as { __dance: { exec: (id: string) => Promise<unknown> } })
+        .__dance;
+      try {
+        await dance.exec("dance.modes.set.normal");
+        return "ok";
+      } catch (e) {
+        return `err: ${(e as Error).message}`;
+      }
+    });
+    expect(result).toBe("ok");
+    expect(errors.filter((e) => !e.includes("404") && !e.includes("preview-error"))).toEqual([]);
+  });
+
   test("on Colemak OS, key chips render the OS letter (n) instead of the QWERTY position (j)", async ({
     page,
   }) => {
