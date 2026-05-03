@@ -28,11 +28,17 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "VITE_BASE=/ pnpm build && pnpm preview --port 4173 --host 127.0.0.1 --strictPort",
+    command:
+      "pnpm build && pnpm exec vite preview --port 4173 --host 127.0.0.1 --strictPort",
     url: "http://127.0.0.1:4173",
     reuseExistingServer: !process.env["CI"],
     timeout: 180_000,
     stdout: "pipe",
     stderr: "pipe",
+    env: {
+      // Force base="/" for both build and preview, regardless of any
+      // GITHUB_REPOSITORY env CI may inject.
+      VITE_BASE: "/",
+    },
   },
 });
