@@ -83,6 +83,10 @@ export function LessonRunner({ lesson }: { lesson: Lesson }) {
     setTone("info");
   };
 
+  const handleSkip = () => {
+    advance();
+  };
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-4 h-full">
       <div className="flex flex-col gap-3 min-w-0">
@@ -112,6 +116,17 @@ export function LessonRunner({ lesson }: { lesson: Lesson }) {
           {step?.hint && !showHint && (
             <Button variant="ghost" size="sm" onClick={() => setShowHint(true)}>
               Show hint
+            </Button>
+          )}
+          {step && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="ml-auto"
+              onClick={handleSkip}
+              title="Skip this step without satisfying its goal"
+            >
+              {stepIndex + 1 === lesson.steps.length ? "Finish lesson" : "Next step →"}
             </Button>
           )}
         </div>

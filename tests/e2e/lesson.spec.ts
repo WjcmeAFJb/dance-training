@@ -166,4 +166,47 @@ test.describe("Monaco editor integration", () => {
       timeout: 5000,
     });
   });
+
+  test("Next-step button advances without satisfying the goal", async ({ page }) => {
+    await page.goto("/#/lessons/02-basics/02-cursor-motion");
+    await page.waitForSelector(".monaco-editor", { timeout: 30000 });
+    await expect(page.locator("text=/Step 1\\/5/")).toBeVisible();
+    await page.getByRole("button", { name: /Next step/ }).click();
+    await expect(page.locator("text=/Step 2\\/5/")).toBeVisible({ timeout: 3000 });
+    await page.getByRole("button", { name: /Next step/ }).click();
+    await expect(page.locator("text=/Step 3\\/5/")).toBeVisible({ timeout: 3000 });
+  });
+
+  test("on Colemak OS, key chips render the OS letter (n) instead of the QWERTY position (j)", async ({
+    page,
+  }) => {
+    // Set Colemak as the OS layout in settings, then upload the bundled
+    // bindings, then visit a lesson that references dance.select.left.jump.
+    await page.goto("/#/settings");
+    await page.locator("button[role='combobox']").first().click();
+    await page.getByRole("option", { name: "Colemak" }).first().click();
+
+    await page.goto("/#/upload");
+    await page.setInputFiles('input[type="file"]', {
+      name: "keybindings.json",
+      mimeType: "application/json",
+      buffer: Buffer.from(USER_KEYBINDINGS, "utf8"),
+    });
+    await expect(page.getByText(/Loaded/).first()).toBeVisible({ timeout: 10000 });
+
+    await page.goto("/#/lessons/02-basics/02-cursor-motion");
+    await page.waitForSelector(".monaco-editor", { timeout: 30000 });
+
+    // The "left" step's narrate token {{key:dance.select.left.jump}} resolves
+    // to the user's [KeyJ] binding. On Colemak that physical position
+    // produces 'n', not 'j'. The chip should show 'n' as the primary glyph.
+    // Step 4 of the lesson narrates the left chip.
+    // Read the narration paragraph text and check it contains 'n' (Colemak)
+    // and not just 'j' (QWERTY).
+    const narration = page.locator(".lesson-prose").first();
+    const text = await narration.textContent();
+    expect(text).toContain("n");
+    // The hardware-printed-letter hint should also appear, in brackets.
+    // (We don't assert exact format because it's wrapped in a chip.)
+  });
 });

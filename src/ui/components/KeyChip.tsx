@@ -74,8 +74,16 @@ function SingleChip({
 }) {
   const tooltip =
     title ?? describeKey(view, { os: osLayout as never, printed: printedLayout as never });
-  const showPrinted = showAlternates && view.printed !== view.canonical;
-  const showOs = showAlternates && view.os !== view.canonical && view.os !== view.printed;
+  // Display priority:
+  //   primary  = what the user actually types under their OS layout
+  //              ("n" on Colemak, "j" on QWERTY)
+  //   printed  = what's engraved on the hardware key, shown when it differs
+  //              from the OS letter — tells the user *where to look* on the
+  //              keyboard
+  //   canonical (Kak doc letter) is implied by the tooltip; we don't render
+  //   it on the chip because for users with custom bindings it's noise.
+  const primary = view.os || view.canonical;
+  const showPrintedHint = showAlternates && view.printed && view.printed !== primary;
   return (
     <span
       title={tooltip}
@@ -86,15 +94,13 @@ function SingleChip({
           {MOD_LABEL[m] ?? m}
         </span>
       ))}
-      <span className="kbd-canonical">{prettify(view.canonical)}</span>
-      {showPrinted && (
-        <sub className="kbd-printed ml-1" aria-label="printed on hardware key">
-          {prettify(view.printed)}
-        </sub>
-      )}
-      {showOs && (
-        <sub className="kbd-os ml-1" aria-label="produced by your OS layout">
-          {prettify(view.os)}
+      <span className="kbd-canonical">{prettify(primary)}</span>
+      {showPrintedHint && (
+        <sub
+          className="kbd-printed ml-1"
+          aria-label={`labelled "${view.printed}" on your keyboard`}
+        >
+          [{prettify(view.printed)}]
         </sub>
       )}
     </span>
